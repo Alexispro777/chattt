@@ -27,7 +27,7 @@ db.serialize(() => {
     )`);
 });
 
-// Middleware para sesiones — debe ir **antes** de las rutas
+// Middleware para sesiones — debe ir antes de las rutas
 const sessionParser = session({
     secret: 'secret-key',
     resave: false,
@@ -38,7 +38,12 @@ app.use(sessionParser);
 // Middleware para parsear formularios
 app.use(bodyParser.urlencoded({ extended: false }));
 
-// Rutas que dependen de sesión deben ir **antes** de servir archivos estáticos
+// Rutas de prueba y autenticación
+
+// Ruta para probar que el servidor responde
+app.get('/test', (req, res) => {
+    res.send('Servidor funcionando correctamente en /test');
+});
 
 // Ruta para obtener usuario logueado (útil para el chat)
 app.get('/me', (req, res) => {
@@ -118,6 +123,7 @@ app.post('/login', (req, res) => {
     });
 });
 
+// Middleware para proteger rutas que requieren login
 function authMiddleware(req, res, next) {
     if (req.session.user) next();
     else res.redirect('/login');
@@ -128,7 +134,7 @@ app.get('/chat', authMiddleware, (req, res) => {
     res.sendFile(path.join(__dirname, 'views/chat.html'));
 });
 
-// Finalmente, archivos estáticos (al final)
+// Archivos estáticos (al final, para no interferir con rutas)
 app.use(express.static(path.join(__dirname, 'public')));
 
 // WebSocket y sesiones
