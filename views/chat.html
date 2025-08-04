@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Chat</title>
+  <script>
+    const ws = new WebSocket("wss://" + location.host);
+    ws.onmessage = msg => {
+      const data = JSON.parse(msg.data);
+      const chat = document.getElementById("chat");
+      chat.innerHTML += `<p><strong>${data.user}</strong>: ${data.text}</p>`;
+    };
+    function sendMessage() {
+      const text = document.getElementById("msg").value;
+      ws.send(JSON.stringify({ user: "%USERNAME%", text }));
+      document.getElementById("msg").value = "";
+    }
+  </script>
+</head>
+<body>
+  <h2>Chat en vivo</h2>
+  <div id="chat" style="border:1px solid #ccc;height:200px;overflow:auto;"></div>
+  <input id="msg" placeholder="Escribe tu mensaje">
+  <button onclick="sendMessage()">Enviar</button>
+</body>
+</html>
