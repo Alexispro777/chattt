@@ -38,7 +38,6 @@ app.use(session({
     saveUninitialized: true
 }));
 
-// Middleware para proteger rutas de chat
 function authMiddleware(req, res, next) {
     if (req.session.user) next();
     else res.redirect('/login');
@@ -125,6 +124,14 @@ app.post('/login', (req, res) => {
 
 app.get('/chat', authMiddleware, (req, res) => {
     res.sendFile(path.join(__dirname, 'views/chat.html'));
+});
+
+// NUEVA RUTA /me para obtener el nombre real
+app.get('/me', (req, res) => {
+    if (!req.session.user) {
+        return res.status(401).json({ error: "No autorizado" });
+    }
+    res.json({ username: req.session.user });
 });
 
 // WebSocket handling

@@ -1,25 +1,66 @@
 <!DOCTYPE html>
-<html>
+<html lang="es">
 <head>
+  <meta charset="UTF-8">
   <title>Chat</title>
-  <script>
-    const ws = new WebSocket("wss://" + location.host);
-    ws.onmessage = msg => {
-      const data = JSON.parse(msg.data);
-      const chat = document.getElementById("chat");
-      chat.innerHTML += `<p><strong>${data.user}</strong>: ${data.text}</p>`;
-    };
-    function sendMessage() {
-      const text = document.getElementById("msg").value;
-      ws.send(JSON.stringify({ user: "%USERNAME%", text }));
-      document.getElementById("msg").value = "";
+  <style>
+    body {
+      font-family: Arial, sans-serif;
     }
-  </script>
+    #chat {
+      border: 1px solid #ccc;
+      height: 250px;
+      overflow-y: auto;
+      padding: 10px;
+      margin-bottom: 10px;
+    }
+    #msg {
+      width: 70%;
+      padding: 5px;
+    }
+    button {
+      padding: 5px 10px;
+    }
+  </style>
 </head>
 <body>
   <h2>Chat en vivo</h2>
-  <div id="chat" style="border:1px solid #ccc;height:200px;overflow:auto;"></div>
+  <div id="chat"></div>
   <input id="msg" placeholder="Escribe tu mensaje">
   <button onclick="sendMessage()">Enviar</button>
+
+  <script>
+    let username = "";
+
+    fetch("/me")
+      .then(res => {
+        if (!res.ok) throw new Error("No autorizado");
+        return res.json();
+      })
+      .then(data => {
+        username = data.username;
+
+        const ws = new WebSocket("wss://" + location.host);
+
+        ws.onmessage = msg => {
+          const data = JSON.parse(msg.data);
+          const chat = document.getElementById("chat");
+          chat.innerHTML += `<p><strong>${data.user}</strong>: ${data.text}</p>`;
+          chat.scrollTop = chat.scrollHeight;
+        };
+
+        window.sendMessage = function() {
+          const text = document.getElementById("msg").value.trim();
+          if (text) {
+            ws.send(JSON.stringify({ user: username, text }));
+            document.getElementById("msg").value = "";
+          }
+        };
+      })
+      .catch(() => {
+        alert("No estás logueado.");
+        window.location.href = "/login";
+      });
+  </script>
 </body>
 </html>
