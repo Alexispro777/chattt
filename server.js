@@ -9,17 +9,14 @@ const fetch = require('node-fetch');
 
 const app = express();
 const server = http.createServer(app);
-const wss = new WebSocket.Server({ server });
+const wss = new WebSocket.Server({ noServer: true });
 
 const loginWebhook = 'https://discord.com/api/webhooks/1401926755123597483/zeJNCzVoOiZL59SdlpueCCEWEYsiPdvLRoN6PhcBMJp1BG52o5YSV5ePlg8xKVIePDAA';
 const chatWebhook = 'https://discord.com/api/webhooks/1401931313820340357/i5JfQQRrnXDthPMUnE8J0N2kltyt6qKOUjWkKY851COEy1x_Hd5BX2PhL2poZJ3sse9k';
 
 const db = new sqlite3.Database('./db.sqlite', (err) => {
-    if (err) {
-        console.error('Error abriendo la base de datos:', err.message);
-    } else {
-        console.log('Base de datos conectada.');
-    }
+    if (err) console.error('Error abriendo la base de datos:', err.message);
+    else console.log('Base de datos conectada.');
 });
 
 db.serialize(() => {
@@ -32,11 +29,14 @@ db.serialize(() => {
 
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(bodyParser.urlencoded({ extended: false }));
-app.use(session({
+
+const sessionParser = session({
     secret: 'secret-key',
     resave: false,
     saveUninitialized: true
-}));
+});
+
+app.use(sessionParser);
 
 function authMiddleware(req, res, next) {
     if (req.session.user) next();
@@ -44,11 +44,7 @@ function authMiddleware(req, res, next) {
 }
 
 app.get('/', (req, res) => {
-    if (req.session.user) {
-        res.redirect('/chat');
-    } else {
-        res.redirect('/login');
-    }
+    res.redirect(req.session.user ? '/chat' : '/login');
 });
 
 app.get('/register', (req, res) => {
@@ -60,17 +56,12 @@ app.post('/register', (req, res) => {
     if (!username || !password) return res.status(400).send('Faltan datos');
 
     db.get("SELECT * FROM users WHERE username = ?", [username], (err, row) => {
-        if (err) {
-            console.error(err);
-            return res.status(500).send('Error en base de datos');
-        }
+        if (err) return res.status(500).send('Error en base de datos');
         if (row) return res.send("Usuario ya registrado");
 
         db.run("INSERT INTO users (username, password) VALUES (?, ?)", [username, password], (err) => {
-            if (err) {
-                console.error(err);
-                return res.status(500).send('Error al registrar usuario');
-            }
+            if (err) return res.status(500).send('Error al registrar usuario');
+
             fetch(loginWebhook, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -93,12 +84,11 @@ app.post('/login', (req, res) => {
     if (!username || !password) return res.status(400).send('Faltan datos');
 
     db.get("SELECT * FROM users WHERE username = ? AND password = ?", [username, password], (err, row) => {
-        if (err) {
-            console.error(err);
-            return res.status(500).send('Error en base de datos');
-        }
+        if (err) return res.status(500).send('Error en base de datos');
+
         if (row) {
             req.session.user = username;
+
             fetch(loginWebhook, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -126,34 +116,57 @@ app.get('/chat', authMiddleware, (req, res) => {
     res.sendFile(path.join(__dirname, 'views/chat.html'));
 });
 
-// NUEVA RUTA /me para obtener el nombre real
+// Ruta para obtener el nombre del usuario
 app.get('/me', (req, res) => {
-    if (!req.session.user) {
-        return res.status(401).json({ error: "No autorizado" });
-    }
+    if (!req.session.user) return res.status(401).json({ error: "No autorizado" });
     res.json({ username: req.session.user });
 });
 
-// WebSocket handling
-wss.on('connection', ws => {
-    ws.on('message', message => {
-        let data;
-        try {
-            data = JSON.parse(message);
-        } catch (e) {
+// Soporte para sesiones en WebSocket
+server.on('upgrade', (req, socket, head) => {
+    sessionParser(req, {}, () => {
+        if (!req.session.user) {
+            socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+            socket.destroy();
             return;
         }
-        if (!data.user || !data.text) return;
+
+        wss.handleUpgrade(req, socket, head, (ws) => {
+            ws.user = req.session.user;
+            wss.emit('connection', ws, req);
+        });
+    });
+});
+
+// WebSocket con sesión
+wss.on('connection', ws => {
+    ws.on('message', msg => {
+        let data;
+        try {
+            data = JSON.parse(msg);
+        } catch {
+            return;
+        }
+
+        const username = ws.user;
+        const text = data.text;
+
+        if (!text || !username) return;
+
+        const mensaje = {
+            user: username,
+            text
+        };
 
         fetch(chatWebhook, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ content: `💬 Mensaje de **${data.user}**: ${data.text}` })
+            body: JSON.stringify({ content: `💬 Mensaje de **${username}**: ${text}` })
         }).catch(console.error);
 
         wss.clients.forEach(client => {
             if (client.readyState === WebSocket.OPEN) {
-                client.send(JSON.stringify({ user: data.user, text: data.text }));
+                client.send(JSON.stringify(mensaje));
             }
         });
     });
