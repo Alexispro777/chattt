@@ -27,26 +27,31 @@ db.serialize(() => {
     )`);
 });
 
-app.use(express.static(path.join(__dirname, 'public')));
-app.use(bodyParser.urlencoded({ extended: false }));
-
+// Middleware para sesiones — debe ir **antes** de las rutas
 const sessionParser = session({
     secret: 'secret-key',
     resave: false,
     saveUninitialized: true
 });
-
 app.use(sessionParser);
 
-function authMiddleware(req, res, next) {
-    if (req.session.user) next();
-    else res.redirect('/login');
-}
+// Middleware para parsear formularios
+app.use(bodyParser.urlencoded({ extended: false }));
 
+// Rutas que dependen de sesión deben ir **antes** de servir archivos estáticos
+
+// Ruta para obtener usuario logueado (útil para el chat)
+app.get('/me', (req, res) => {
+    if (!req.session.user) return res.status(401).json({ error: "No autorizado" });
+    res.json({ username: req.session.user });
+});
+
+// Ruta raíz
 app.get('/', (req, res) => {
     res.redirect(req.session.user ? '/chat' : '/login');
 });
 
+// Registro
 app.get('/register', (req, res) => {
     res.sendFile(path.join(__dirname, 'views/register.html'));
 });
@@ -75,6 +80,7 @@ app.post('/register', (req, res) => {
     });
 });
 
+// Login
 app.get('/login', (req, res) => {
     res.sendFile(path.join(__dirname, 'views/login.html'));
 });
@@ -112,17 +118,20 @@ app.post('/login', (req, res) => {
     });
 });
 
+function authMiddleware(req, res, next) {
+    if (req.session.user) next();
+    else res.redirect('/login');
+}
+
+// Chat protegido
 app.get('/chat', authMiddleware, (req, res) => {
     res.sendFile(path.join(__dirname, 'views/chat.html'));
 });
 
-// Ruta para obtener el nombre del usuario
-app.get('/me', (req, res) => {
-    if (!req.session.user) return res.status(401).json({ error: "No autorizado" });
-    res.json({ username: req.session.user });
-});
+// Finalmente, archivos estáticos (al final)
+app.use(express.static(path.join(__dirname, 'public')));
 
-// Soporte para sesiones en WebSocket
+// WebSocket y sesiones
 server.on('upgrade', (req, socket, head) => {
     sessionParser(req, {}, () => {
         if (!req.session.user) {
@@ -138,7 +147,6 @@ server.on('upgrade', (req, socket, head) => {
     });
 });
 
-// WebSocket con sesión
 wss.on('connection', ws => {
     ws.on('message', msg => {
         let data;
